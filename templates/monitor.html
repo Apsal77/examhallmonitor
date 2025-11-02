@@ -1,0 +1,39 @@
+<!-- templates/monitor.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Monitor</title>
+  <style>
+    body{font-family:Arial;margin:10px}
+    .grid{display:flex; gap:10px}
+    .box img{border-radius:8px;border:2px solid #333}
+    .controls{margin-top:10px}
+  </style>
+</head>
+<body>
+  <h2>Monitor — Live Detection</h2>
+  <div class="grid">
+  <div class="box"><h4>Front 1</h4>
+    <img src="{{ url_for('stream_monitor', cam='front') }}" width="960" height="720">
+  </div>
+  <div class="box"><h4>Front 2</h4>
+    <img src="{{ url_for('stream_monitor', cam='front2') }}" width="960" height="720">
+  </div>
+  <div class="box"><h4>Front 3</h4>
+    <img src="{{ url_for('stream_monitor', cam='front3') }}" width="960" height="720">
+  </div>
+  <div class="box"><h4>Left</h4>
+    <img src="{{ url_for('stream_monitor', cam='left') }}" width="960" height="720">
+  </div>
+  <div class="box"><h4>Right</h4>
+    <img src="{{ url_for('stream_monitor', cam='right') }}" width="960" height="720">
+  </div>
+  </div>
+
+
+  <div class="controls">
+    <a href="/dashboard">Go to Dashboard</a> |
+    <a href="/setup">Back to Setup</a>
+  </div>
+</body>
+</html>

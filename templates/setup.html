@@ -1,0 +1,227 @@
+<!-- templates/setup.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Setup Cameras</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 20px;
+      background-color: #f5f6fa;
+      color: #333;
+    }
+    h2 {
+      color: #2f3640;
+      margin-bottom: 15px;
+    }
+    .exam-info {
+      background-color: #fff;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    .exam-info label {
+      font-weight: bold;
+      margin-right: 8px;
+    }
+    .exam-info input {
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      width: 200px;
+    }
+    .row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .camera {
+      flex: 1;
+      min-width: 320px;
+      background-color: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .camera h3 {
+      margin-top: 0;
+      text-align: center;
+      color: #273c75;
+    }
+    .camera img {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      border: 2px solid #273c75;
+    }
+    canvas {
+      position: absolute;
+      left: 0; top: 0;
+      border-radius: 6px;
+    }
+    .buttons {
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    button {
+      padding: 8px 14px;
+      border-radius: 4px;
+      border: none;
+      background-color: #44bd32;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #407f27;
+    }
+    hr {
+      margin: 30px 0;
+      border: none;
+      border-top: 2px solid #dcdde1;
+    }
+    .footer-links a {
+      margin-left: 20px;
+      text-decoration: none;
+      color: #273c75;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="exam-info">
+    <div>
+      <label for="exam_name">Exam Name:</label>
+      <input type="text" id="exam_name" placeholder="Enter exam name">
+    </div>
+    <div>
+      <label for="exam_duration">Duration (minutes):</label>
+      <input type="number" id="exam_duration" placeholder="Enter duration">
+    </div>
+  </div>
+  <h2>Setup — Click 4 corners for each camera (TL, TR, BR, BL)</h2>
+  <div class="row">
+    <div class="camera">
+      <h3>Front</h3>
+      <div style="position:relative">
+        <img id="img_front" src="/stream_setup/front" style="width:960px;height:720px">
+        <canvas id="can_front" width="960" height="720" style="position:absolute;left:0;top:0"></canvas>
+      </div>
+      <div>
+        <button onclick="reset('front')">Reset</button>
+        <button onclick="saveCamera('front')">Save camera points</button>
+      </div>
+      <div id="pts_front"></div>
+    </div>
+
+    <div class="camera">
+      <h3>Left</h3>
+      <div style="position:relative">
+        <img id="img_left" src="/stream_setup/left" style="width:960px;height:720px">
+        <canvas id="can_left" width="960" height="720" style="position:absolute;left:0;top:0"></canvas>
+      </div>
+      <div>
+        <button onclick="reset('left')">Reset</button>
+        <button onclick="saveCamera('left')">Save camera points</button>
+      </div>
+      <div id="pts_left"></div>
+    </div>
+
+    <div class="camera">
+      <h3>Right</h3>
+      <div style="position:relative">
+        <img id="img_right" src="/stream_setup/right" style="width:960px;height:720px">
+        <canvas id="can_right" width="960" height="720" style="position:absolute;left:0;top:0"></canvas>
+      </div>
+      <div>
+        <button onclick="reset('right')">Reset</button>
+        <button onclick="saveCamera('right')">Save camera points</button>
+      </div>
+      <div id="pts_right"></div>
+    </div>
+  </div>
+
+  <hr>
+  <button onclick="startMonitoring()">Process / Start Monitoring</button>
+  <a href="/dashboard" style="margin-left:20px">Go to Dashboard</a>
+
+<script>
+const cams = ["front","left","right"];
+let points = {front:[], left:[], right:[]};
+
+cams.forEach(cam=>{
+  const canvas = document.getElementById('can_'+cam);
+  const ctx = canvas.getContext('2d');
+  canvas.addEventListener('click', (ev)=>{
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    if(points[cam].length < 4){
+      points[cam].push([Math.round(x), Math.round(y)]);
+      drawPoints(cam);
+    }
+  });
+});
+
+function drawPoints(cam){
+  const canvas = document.getElementById('can_'+cam);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width, canvas.height);
+  ctx.fillStyle = 'red';
+  points[cam].forEach((p,i)=>{
+    ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, Math.PI*2); ctx.fill();
+    ctx.fillText((i+1).toString(), p[0]+8, p[1]-8);
+  });
+  // if 4 points draw polygon
+  if(points[cam].length==4){
+    ctx.strokeStyle = 'lime'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(points[cam][0][0], points[cam][0][1]);
+    for(let i=1;i<4;i++) ctx.lineTo(points[cam][i][0], points[cam][i][1]);
+    ctx.closePath(); ctx.stroke();
+  }
+  document.getElementById('pts_'+cam).innerText = JSON.stringify(points[cam]);
+}
+
+function reset(cam){
+  points[cam]=[];
+  drawPoints(cam);
+}
+
+function saveCamera(cam){
+  if(points[cam].length != 4){ alert("Please pick 4 points for "+cam); return; }
+  // temporarily send single camera points to server and store in client side
+  alert(cam + " points saved locally. Click Process to send all points to server.");
+}
+
+function startMonitoring(){
+  // verify all cams have 4 pts
+  for(let c of cams){
+    if(points[c].length != 4){
+      alert("Please set 4 points for "+c);
+      return;
+    }
+  }
+  fetch('/save_calib', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(points)
+  }).then(r=>r.json()).then(j=>{
+    if(j.status=='ok'){
+      window.location.href = '/monitor';
+    } else {
+      alert("Save failed");
+    }
+  });
+}
+</script>
+</body>
+</html>

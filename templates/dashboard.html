@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Exam Hall Activity Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 20px; }
+    h1, h2 { color: #333; }
+    img { max-width: 45%; height: auto; margin: 10px; border-radius: 10px; box-shadow: 0 0 5px rgba(0,0,0,0.2); }
+    .charts { display: flex; justify-content: center; gap: 30px; margin-bottom: 30px; }
+    .lists { display: flex; flex-wrap: wrap; gap: 40px; }
+    ul { background: white; padding: 10px 20px; border-radius: 10px; box-shadow: 0 0 5px rgba(0,0,0,0.1); min-width: 200px; }
+    li { padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <h1>Exam Hall Monitoring Dashboard</h1>
+
+  <div class="charts">
+    <img src="{{ url_for('static', filename='attendance_bar.png') }}" alt="Attendance Bar Chart">
+    <img src="{{ url_for('static', filename='violation_pie.png') }}" alt="Violation Pie Chart">
+  </div>
+
+  <div class="lists">
+    <div>
+      <h2>Absent Students</h2>
+      <ul>
+        {% for student in absent_students %}
+          <li>{{ student }}</li>
+        {% else %}
+          <li>None</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <h2>Present Students</h2>
+      <ul>
+        {% for student in present_students %}
+          <li>{{ student }}</li>
+        {% else %}
+          <li>None</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <h2>Violated Students</h2>
+      <ul>
+        {% for student in violated_students %}
+          <li>{{ student }}</li>
+        {% else %}
+          <li>None</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div>
+      <h2>Honest Students</h2>
+      <ul>
+        {% for student in honest_students %}
+          <li>{{ student }}</li>
+        {% else %}
+          <li>None</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

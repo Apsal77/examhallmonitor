@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ student }} - Logs</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h2 { color: #444; }
+        ul { list-style-type: square; }
+    </style>
+</head>
+<body>
+    <h2>📌 Cheating Activities for {{ student }}</h2>
+
+    {% if logs %}
+        <ul>
+            {% for log in logs %}
+                <li>{{ log }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No cheating activities logged.</p>
+    {% endif %}
+
+    <a href="{{ url_for('dashboard_page') }}">⬅ Back to Dashboard</a>
+</body>
+</html>
