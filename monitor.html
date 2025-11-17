@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI EXAM MONITOR - Live View</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background-color: #000;
+      color: #fff;
+    }
+
+    /* ✅ TWO-COLUMN LAYOUT */
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* ✅ LEFT PANEL FOR DETAILS */
+    .left-panel {
+      width: 18%;
+      background-color: #111;
+      padding: 20px;
+      border-right: 2px solid #333;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      overflow-y: auto;
+    }
+
+    .left-panel h2 {
+      color: #00a8ff;
+      font-size: 20px;
+      margin-bottom: 15px;
+      text-shadow: 0 0 8px #00a8ff;
+      align-self: center;
+    }
+
+    .info-block {
+      width: 100%;
+      margin-bottom: 25px;
+    }
+
+    .info-block label {
+      display: block;
+      color: #999;
+      font-size: 14px;
+      margin-top: 10px;
+      margin-bottom: 3px;
+    }
+
+    .info-block p {
+      background-color: #000;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 8px;
+      color: #fff;
+      font-size: 16px;
+      margin: 0;
+      word-break: break-word;
+    }
+
+    .student-list {
+      width: 100%;
+      margin-top: 15px;
+    }
+
+    .student-list h3 {
+      font-size: 18px;
+      color: #00ff88;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .student-item {
+      background-color: #000;
+      padding: 8px;
+      margin: 5px 0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      text-align: left;
+      font-size: 16px;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    /* ✅ RIGHT PANEL */
+    .right-panel {
+      width: 82%;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .header {
+      text-align: center;
+      padding: 20px;
+      font-size: 26px;
+      color: #00a8ff;
+      text-shadow: 0 0 8px #00a8ff;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    /* ✅ Camera grid */
+    .camera-grid {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      gap: 15px;
+      padding: 10px 0;
+    }
+
+    .camera {
+      width: 32%;
+      background-color: #111;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,255,0,0.2);
+      text-align: center;
+      position: relative;
+    }
+
+    .camera h3 {
+      color: #00ff88;
+      margin: 10px 0;
+      font-size: 16px;
+    }
+
+    .cam-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .camera img {
+      width: 100%;
+      height: auto;
+      border: 2px solid #00ff88;
+      border-radius: 8px;
+      display: block;
+    }
+
+    /* ✅ Buttons at bottom of right panel */
+    .bottom-buttons {
+      text-align: center;
+      margin-top: 30px;
+    }
+
+    .btn {
+      padding: 30px 20px;
+      background-color: #00a8ff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 40px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 0 10px;
+      text-decoration: none;
+      display: inline-block;
+      transition: 0.2s;
+      margin-top: 30px;
+    }
+
+    .btn:hover {
+      background-color: #0fda16;
+    }
+    .net{
+      
+      background-color: #181818;
+      padding: 20px;
+      padding-left: 20px;
+      width: 92%;
+      height: 300px;
+      
+      
+      
+    }
+    .cet{
+      background-color: #181818;
+      padding: 20px;
+      padding-left: 20px;
+      width: 92%;
+      height: 1000px;
+      margin-top: 23px;
+    }
+    .wr{background-color: #0f0f0f;
+       padding: 4%;
+       margin-top: 3px;
+       font-size: 20px;
+       text-transform: uppercase;
+       font-weight:700;
+      
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <!-- ✅ LEFT PANEL: Exam & Students -->
+<div class="left-panel">
+  <div class="net">
+  <h2 style="font-size: 25px;text-align: center;">EXAM DETAILS</h2>
+
+  <div class="exam-info" style="font-size: 20px;">
+    <p class="wr">Exam Name: {{ exam_name }}</p>
+    <p class="wr">Subject Code: {{ subject_code }}</p>
+    <p class="wr">Duration: {{ duration }}</p>
+  </div>
+  </div>
+  <div class="cet">
+  <h2 style="font-size: 25px;text-align: center;">STUDENTS LIST</h2>
+  <ul style="list-style:none; padding:0; margin:0; text-align:left;">
+    {% for name in students %}
+      <li class="wr"style="margin:6px 0;margin_top:5px color:#ffffff; font-size:20px;">{{ loop.index }}.  {{ name }}</li>
+    {% endfor %}
+  </ul>
+  </div>
+</div>
+
+  <!-- ✅ RIGHT PANEL: Live Feeds -->
+  <div class="right-panel">
+    <div class="header">AI EXAM MONITOR — LIVE DETECTION</div>
+
+    <!-- ✅ ROW 1 -->
+    <div class="camera-grid">
+      <div class="camera">
+        <h3>Front 1</h3>
+        <div class="cam-wrapper">
+          <img src="{{ url_for('stream_monitor', cam='front') }}">
+        </div>
+      </div>
+
+      <div class="camera">
+        <h3>Front 2</h3>
+        <div class="cam-wrapper">
+          <img src="{{ url_for('stream_monitor', cam='front2') }}">
+        </div>
+      </div>
+
+      <div class="camera">
+        <h3>Front 3</h3>
+        <div class="cam-wrapper">
+          <img src="{{ url_for('stream_monitor', cam='front3') }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- ✅ ROW 2 -->
+    <!-- ✅ ROW 2 -->
+<div class="camera-grid">
+
+  <div class="camera">
+    <h3>Left</h3>
+    <div class="cam-wrapper">
+      <img src="{{ url_for('stream_monitor', cam='left') }}">
+    </div>
+  </div>
+
+  <div class="camera">
+    <h3>Right</h3>
+    <div class="cam-wrapper">
+      <img src="{{ url_for('stream_monitor', cam='right') }}">
+    </div>
+  </div>
+
+  <div class="camera">
+    
+    <div class="cam-wrapper" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
+      <a href="/dashboard" class="btn" style="width:80%; margin-bottom:10px;">Dashboard</a>
+      <a href="/setup" class="btn" style="width:80%;">Back to Setup</a>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

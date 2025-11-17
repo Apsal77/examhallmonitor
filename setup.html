@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI EXAM MONITOR - Setup</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #000;
+      color: #fff;
+    }
+    h1 {
+      text-align: center;
+      color: #00a7de;
+      margin-bottom: 30px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 10px #00a7de;
+      font-size: 40px;
+    }
+    h2 {
+      color: #ffffff;
+      margin-top: 40px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+    .camera {
+      flex: 1;
+      min-width: 320px;
+      max-width: 960px;
+      background-color: #111;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgb(74, 73, 73);
+    }
+    .camera h3 {
+      margin-top: 0;
+      text-align: center;
+      color: #ffffff;
+      font-size: 30px;
+    }
+    .camera img {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      border: 2px solid #00a7de;
+    }
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      border-radius: 6px;
+    }
+    button {
+      padding: 8px 14px;
+      border-radius: 4px;
+      border: none;
+      background-color: #00a7de;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background-color 0.2s;
+      font-size: medium;
+    }
+    button:hover {
+      background-color: #00994d;
+    }
+    .buttons {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    hr {
+      margin: 40px 0;
+      border: none;
+      border-top: 2px solid #00a7de;
+    }
+    /* --- Layout for Exam and Students Section --- */
+    .details-section {
+      display: flex;
+      justify-content: flex-start;
+      align-items: flex-start;
+      gap: 40px;
+      width: 100%;
+      margin-top: 30px;
+    }
+    .exam-info {
+      background-color: #111;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgb(74, 73, 73);
+      width: 500px;
+      height: 370px;
+    }
+    .exam-info label {
+      display: block;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      font-weight: bold;
+      color: #929191;
+      font-size: x-large;
+    }
+    .exam-info input {
+      width: 90%;
+      padding: 10px;
+      border-radius: 2px;
+      border: 1px solid #6b6b6b;
+      background-color: #000;
+      color: #fff;
+      font-size: x-large;
+      font-weight: bold;
+    }
+    .students {
+      background-color: #111;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgb(74, 73, 73);
+      width: 1400px;
+      height: 370px;
+    }
+    .students h3 {
+      text-align: center;
+      color: #ffffff;
+      margin-bottom: 20px;
+      font-size: x-large;
+    }
+    .student-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 35px;
+    }
+    .student-grid input {
+      width: 90%;
+      padding: 8px;
+      border-radius: 2px;
+      border: 1px solid #7b7b7b;
+      background-color: #000;
+      color: #fff;
+      font-size: x-large;
+      font-weight: bold;
+    }
+    .center-buttons {
+      text-align: center;
+      margin-top: 40px;
+    }
+    a {
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: bold;
+      margin-left: 20px;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>AI EXAM MONITOR</h1>
+
+  <!-- Camera Views -->
+  <div class="row">
+    {% for cam in ['front', 'left', 'right'] %}
+    <div class="camera">
+      <h3>{{ cam|capitalize }}</h3>
+      <div style="position:relative">
+        <img id="img_{{ cam }}" src="/stream_setup/{{ cam }}" style="width:960px;height:720px">
+        <canvas id="can_{{ cam }}" width="960" height="720" style="position:absolute;left:0;top:0"></canvas>
+      </div>
+      <div class="buttons">
+        <button onclick="reset('{{ cam }}')">Reset</button>
+        <button onclick="saveCamera('{{ cam }}')">Save Points</button>
+      </div>
+      <div id="pts_{{ cam }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Exam Details + Students -->
+  <div class="details-section">
+    <div class="exam-info">
+      <h3 style="text-align:center; color:#ffffff;font-size: x-large;">Exam Details</h3>
+      <label for="exam_name" style="color: #fff;">Exam Name:</label>
+      <input type="text" id="exam_name" placeholder="Enter Exam name">
+      <label for="exam_code" style="color: #fff;">Subject Code:</label>
+      <input type="text" id="exam_code" placeholder="Enter Subject Code">
+      <label for="exam_duration" style="color: #fff;">Duration (minutes):</label>
+      <input type="number" id="exam_duration" placeholder="Enter duration">
+    </div>
+
+    <div class="students">
+      <h3>Enter 12 Student Names</h3>
+      <div class="student-grid" id="student_list">
+        {% for i in range(1, 13) %}
+          <input type="text" id="student{{ i }}" placeholder="Student {{ i }}">
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="center-buttons">
+  <button onclick="saveExamDetails()">Save Exam Details</button>
+  <button onclick="saveStudentNames()">Save Student Names</button>
+  <button onclick="startMonitoring()">Start Processing</button>
+  <a href="/dashboard">Go to Dashboard</a>
+</div>
+
+
+
+  <script>
+    const cams = ["front","left","right"];
+    let points = {front:[], left:[], right:[]};
+
+    cams.forEach(cam=>{
+      const canvas = document.getElementById('can_'+cam);
+      const ctx = canvas.getContext('2d');
+      canvas.addEventListener('click', (ev)=>{
+        const rect = canvas.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        if(points[cam].length < 4){
+          points[cam].push([Math.round(x), Math.round(y)]);
+          drawPoints(cam);
+        }
+      });
+    });
+
+    function drawPoints(cam){
+      const canvas = document.getElementById('can_'+cam);
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width, canvas.height);
+      ctx.fillStyle = 'red';
+      points[cam].forEach((p,i)=>{
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], 6, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillText((i+1).toString(), p[0]+8, p[1]-8);
+      });
+      if(points[cam].length==4){
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(points[cam][0][0], points[cam][0][1]);
+        for(let i=1;i<4;i++) ctx.lineTo(points[cam][i][0], points[cam][i][1]);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      document.getElementById('pts_'+cam).innerText = JSON.stringify(points[cam]);
+    }
+
+    function reset(cam){ points[cam]=[]; drawPoints(cam); }
+
+    function saveCamera(cam){
+      if(points[cam].length != 4){
+        alert("Please pick 4 points for "+cam);
+        return;
+      }
+      alert(cam + " points saved locally. Click Process to send all points to server.");
+    }
+
+    function startMonitoring(){
+      for(let c of cams){
+        if(points[c].length != 4){
+          alert("Please set 4 points for "+c);
+          return;
+        }
+      }
+
+      // ✅ Collect student names
+      const studentInputs = document.querySelectorAll('#student_list input');
+      const studentNames = [];
+      studentInputs.forEach(inp => {
+        if(inp.value.trim() !== "") studentNames.push(inp.value.trim());
+      });
+
+      // Send student names to Flask first
+      fetch('/save_setup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ student_names: studentNames })
+      }).then(r => r.json()).then(res => {
+        console.log(res.message);
+      });
+
+      // Then send camera calibration points
+      fetch('/save_calib', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(points)
+      })
+      .then(r=>r.json())
+      .then(j=>{
+        if(j.status=='ok'){
+          window.location.href = '/monitor';
+        } else {
+          alert("Save failed");
+        }
+      });
+    }
+    function saveStudentNames() {
+  // ✅ Collect student names from inputs
+  const studentInputs = document.querySelectorAll('#student_list input');
+  const studentNames = [];
+  studentInputs.forEach(inp => {
+    if (inp.value.trim() !== "") studentNames.push(inp.value.trim());
+  });
+
+  if (studentNames.length !== 12) {
+    alert("Please enter all 12 student names before saving.");
+    return;
+  }
+  
+  // ✅ Send to Flask to save into students.csv
+  fetch('/save_students', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ student_names: studentNames })
+  })
+  .then(r => r.json())
+  .then(res => {
+    alert(res.message);
+  })
+  .catch(err => {
+    alert("Error saving student names.");
+    console.error(err);
+  });
+}
+function saveExamDetails() {
+  const exam_name = document.getElementById('exam_name').value.trim();
+  const subject_code = document.getElementById('exam_code').value.trim();
+  const duration = document.getElementById('exam_duration').value.trim();
+
+  if (!exam_name || !subject_code || !duration) {
+    alert("Please fill all exam details before saving.");
+    return;
+  }
+
+  fetch('/save_exam_details', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      exam_name: exam_name,
+      subject_code: subject_code,
+      duration: duration
+    })
+  })
+  .then(r => r.json())
+  .then(res => {
+    alert(res.message);
+  })
+  .catch(err => {
+    alert("Error saving exam details.");
+    console.error(err);
+  });
+}
+  </script>
+</body>
+</html>

@@ -24,32 +24,8 @@ import matplotlib
 matplotlib.use('Agg')  
 
 
-# MediaPipe Pose setup (reusable for all cameras if needed)
-mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils
-pose = mp_pose.Pose(
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
-)
 
-# ---------------- ST-GCN MODEL ----------------
-class SimpleSTGCN(torch.nn.Module):
-    def __init__(self, num_joints, in_channels, num_classes):
-        super().__init__()
-        self.fc1 = torch.nn.Linear(num_joints * in_channels, 256)
-        self.relu = torch.nn.ReLU()
-        self.fc2 = torch.nn.Linear(256, num_classes)
 
-    def forward(self, x):
-        x = x.view(x.size(0), x.size(1), -1)
-        x = x.mean(dim=1)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        return x
-
-# ST-GCN parameters
-STGCN_MODEL_PATH = r"C:\Users\apsal\OneDrive\Desktop\examhallai\stgcn_model.pth"
 NUM_JOINTS = 33
 IN_CHANNELS = 3
 NUM_CLASSES = 4
@@ -57,11 +33,8 @@ SEQ_LEN = 30
 CLASS_NAMES = ['standing', 'bending', 'turningaround', 'normal']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-stgcn_model = SimpleSTGCN(NUM_JOINTS, IN_CHANNELS, NUM_CLASSES).to(device)
-stgcn_model.load_state_dict(torch.load(STGCN_MODEL_PATH, map_location=device))
-stgcn_model.eval()
 
-# Buffer to store sequences of keypoints per person
+
 keypoint_buffers = {}
 
 
@@ -71,7 +44,7 @@ builtins.exit = lambda *args, **kwargs: None
 
 # ========== CONFIG ==========
 VIDEO_SOURCES = {
-    "front": "a.mp4",
+    "front":  "a.mp4",
     "front2": "a.mp4",
     "front3": "a.mp4",   
     "left":  "b.mp4",
@@ -94,11 +67,14 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # ----- Load students (ALWAYS use real names for logging) -----
-students = []
-if os.path.exists(STUDENTS_CSV):
-    students = pd.read_csv(STUDENTS_CSV, header=None)[0].astype(str).str.strip().tolist()
+STUDENTS_CSV = "students.csv"
+
+if os.path.exists(STUDENTS_CSV) and os.path.getsize(STUDENTS_CSV) > 0:
+    df = pd.read_csv(STUDENTS_CSV)
+    students = df.iloc[:, 0].astype(str).str.strip().tolist()
 else:
     students = []
+
 
 # Activity state (for dashboard + de-dup logs)
 activity_log = {name: [] for name in students}
@@ -119,15 +95,6 @@ caps = {}
 
 # Models
 yolo = YOLO(YOLO_WEIGHTS)
-
-
-
-
-import os
-import pandas as pd
-import matplotlib.pyplot as plt
-from flask import Flask, render_template
-
 app = Flask(__name__)
 
 LOG_DIR = "logs"
@@ -138,6 +105,9 @@ VIOLATION_CHART_PATH = os.path.join(STATIC_DIR, "violation_pie.png")
 # Ensure directories exist
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
+
+
+
 
 
 def read_log_files():
@@ -161,6 +131,48 @@ def read_log_files():
     if not df_list:
         raise ValueError("No valid CSV files found.")
     return pd.concat(df_list, ignore_index=True)
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from collections import Counter
+import os
+
+LOGFILE = "logs/alerts_log.csv"
+
+def generate_dashboard_graphs():
+
+    df = pd.read_csv(LOGFILE)
+
+    # ------------------------------
+    # ▣ DONUT CHART DATA
+    # ------------------------------
+    activity_counts = Counter(df['activity'])
+
+    labels = list(activity_counts.keys())
+    values = list(activity_counts.values())
+
+    fig, ax = plt.subplots(figsize=(6,6))
+    wedges, texts, autotexts = ax.pie(values, labels=labels, autopct='%1.1f%%', wedgeprops=dict(width=0.4))
+    ax.set_title("Activity Distribution (Donut Chart)")
+    plt.savefig("static/activity_donut.png")
+    plt.close()
+
+    # ------------------------------
+    # ▣ LINE GRAPH: Time vs Activity Count
+    # ------------------------------
+    df['time'] = pd.to_datetime(df['time'])
+    time_group = df.groupby(pd.Grouper(key='time', freq='10S')).size()
+
+    plt.figure(figsize=(10,4))
+    plt.plot(time_group.index, time_group.values, marker='o')
+    plt.xlabel("Time")
+    plt.ylabel("Number of Activities")
+    plt.title("Activities Over Time")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("static/activity_line.png")
+    plt.close()
 
 
 def plot_attendance_bar_chart(df):
@@ -195,7 +207,7 @@ def analyze_violations(df):
 
     # Mark violation if 3rd warning or leave hall message present
     violated_students = df[
-        df["warning_level"].str.contains("3rd warning", case=False, na=False)
+        df["warning_level"].str.contains("leave", case=False, na=False)
     ]["student"].unique().tolist()
 
     all_students = df["student"].unique().tolist()
@@ -255,6 +267,7 @@ ALERTS_LOG_FILE = os.path.join(LOGS_DIR, "alerts_log.csv")
 
 alert_tracker = {}  # Tracks alert times and counts
 students_blocked_after_third_warning = set()  # Block after 3rd warning
+students_blocked_by_absence = set()
 
 def ensure_alert_log_exists():
     if not os.path.exists(ALERTS_LOG_FILE):
@@ -271,39 +284,105 @@ def _log_to_individual_csv(student_name, msg, activity):
             w.writerow(["time", "student", "activity"])
         w.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), student_name, msg])
 
+# Track activities at same second per student
+same_second_activity = {}  # key = (student_name, "YYYY-MM-DD HH:MM:SS"), value = set([activities])
+
 def log_student_activity(student_name, activity):
     if not student_name:
         return
 
     ensure_alert_log_exists()
 
+    now = datetime.now()
+    time_key = now.strftime("%Y-%m-%d %H:%M:%S")  # second-level timestamp
+
+    # Register activity occurrence for same-time filtering
+    same_second_activity.setdefault((student_name, time_key), set())
+    same_second_activity[(student_name, time_key)].add(activity.lower())
+
+    # ==========================================
+    # 0) SAME-SECOND FILTER RULE
+    # ==========================================
+    current_activities = same_second_activity[(student_name, time_key)]
+
+    # If same second contains both standing + moved out → block moved out alert
+    block_moved_out = (
+        "standing" in current_activities and 
+        "moved out of seat" in activity.lower()
+    )
+
+    # ---------------------------
+    # 1) ABSENCE-BASED BLOCKING
+    # ---------------------------
+    personal_log_file = os.path.join(LOGS_DIR, f"{safe_filename(student_name)}.csv")
+
+    if student_name in students_blocked_by_absence:
+        _log_to_individual_csv(student_name, activity, activity)
+        return
+
+    if os.path.exists(personal_log_file):
+        with open(personal_log_file, "r", encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+
+        if len(rows) > 1:
+            logs = rows[1:]
+            first_time = datetime.strptime(logs[0][0], "%Y-%m-%d %H:%M:%S")
+            elapsed = (now - first_time).total_seconds()
+
+            activities_logged = []
+            for r in logs:
+                if len(r) < 3:
+                    continue   # skip incomplete/corrupted lines
+                if r[2].strip() == "":
+                    continue
+                activities_logged.append(r[2].strip().lower())
+
+            all_absent = all(a == "absent" for a in activities_logged)
+
+            if all_absent and elapsed <= 25:
+                students_blocked_by_absence.add(student_name)
+                _log_to_individual_csv(student_name, activity, activity)
+                return
+
+    # ---------------------------
+    # 2) THIRD-WARNING BLOCKING
+    # ---------------------------
     if student_name in students_blocked_after_third_warning:
         _log_to_individual_csv(student_name, activity, activity)
         return
 
-    now = datetime.now()
+    # ---------------------------
+    # 3) NORMAL ALERT LOGIC
+    # ---------------------------
     key = (student_name, activity)
     phone_chit_activities = ["phone", "chit"]
     escalate_activities = ["moved out of seat", "cheating", "not cheating"]
 
     if key not in alert_tracker:
-        alert_tracker[key] = {"first_alert_time": None, "last_alert_time": None, "count": 0}
+        alert_tracker[key] = {
+            "first_alert_time": None,
+            "last_alert_time": None,
+            "count": 0
+        }
 
     record = alert_tracker[key]
     first_time = record["first_alert_time"]
     last_time = record["last_alert_time"]
     count = record["count"]
 
+    # Start of alert processing
     if first_time is None:
         record["first_alert_time"] = now
         record["last_alert_time"] = now
         record["count"] = 1
         warning_level = "First Alert"
         msg = activity
+
     else:
         elapsed_since_last = (now - last_time).total_seconds()
 
-        if activity in phone_chit_activities:
+        # Immediate third warning for phone/chit
+        if activity.lower() in phone_chit_activities:
             if count == 1:
                 record["count"] = 3
                 record["last_alert_time"] = now
@@ -311,39 +390,52 @@ def log_student_activity(student_name, activity):
                 msg = activity
                 students_blocked_after_third_warning.add(student_name)
             else:
+                _log_to_individual_csv(student_name, activity, activity)
                 return
-        elif activity in escalate_activities:
+
+        elif activity.lower() in escalate_activities:
             if elapsed_since_last >= 20:
                 count += 1
                 record["count"] = count
                 record["last_alert_time"] = now
+
                 if count == 2:
                     warning_level = "this is your 2nd warning"
-                    msg = activity
                 elif count >= 3:
                     warning_level = "this is your 3rd warning, leave the hall immediately"
-                    msg = activity
                     students_blocked_after_third_warning.add(student_name)
-                else:
-                    warning_level = "this is your 3rd warning, leave the hall immediately"
-                    msg = activity
+
+                msg = activity
+
             else:
+                _log_to_individual_csv(student_name, activity, activity)
                 return
+
         else:
             warning_level = None
             msg = activity
             record["last_alert_time"] = now
             record["count"] += 1
 
+    # --------------------------------------
+    # Always write personal log
+    # --------------------------------------
     _log_to_individual_csv(student_name, msg, activity)
 
+    # --------------------------------------
+    # SAME-SECOND FILTER APPLIED HERE
+    # --------------------------------------
+    if block_moved_out:
+        return  # ❌ Do NOT write "moved out of seat" alert when same-second standing exists
+
+    # --------------------------------------
+    # Write alert to log
+    # --------------------------------------
     if warning_level is not None and activity.lower() != "absent":
-        alert_header = not os.path.exists(ALERTS_LOG_FILE)
         with open(ALERTS_LOG_FILE, "a", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            if alert_header:
-                w.writerow(["time", "student", "activity", "warning_level"])
-            w.writerow([now.strftime("%Y-%m-%d %H:%M:%S"), student_name, activity, warning_level])
+            w.writerow([time_key, student_name, activity, warning_level])
+
 
 
 
@@ -460,11 +552,32 @@ def put_label(img, text, org, bg=True):
 # ---------------- Core per-camera processing ----------------
 prior_seat_names = {}
 alerts = []
+start_processing_time = None
+PROCESS_DELAY = 30   # seconds delay
+# start_processing_time must be set at "Start Processing" button press
+
 
 def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
-    global last_front_status
+    global last_front_status, start_processing_time
 
     alerts = []
+    
+    # -----------------------------------------
+    # 30-SECOND DELAY BEFORE STARTING PROCESSING
+    # -----------------------------------------
+    if start_processing_time is None:
+        # first time called → mark timestamp
+        start_processing_time = time.time()
+        return frame, alerts, [], []    # do nothing for now
+
+    elapsed = time.time() - start_processing_time
+    if elapsed < PROCESS_DELAY:
+        # still waiting
+        remaining = PROCESS_DELAY - elapsed
+        cv2.putText(frame, f"Processing will start in {int(remaining)}s...",
+                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        return frame, alerts, [], []
+
     # Person detection (head proxy)
     results = yolo.predict(source=frame, conf=CONF_THR, iou=IOU_THR, classes=[0], verbose=False)
     head_boxes, centers = [], []
@@ -486,8 +599,6 @@ def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
 
             cv2.rectangle(frame, (x1n, y1n), (x2n, y2n), (0, 200, 255), 2)
 
-
-    
     if name == "front" and H is not None and rows and cols:
         centers_arr = (
             np.array(centers, dtype=np.float32).reshape(-1, 2)
@@ -499,24 +610,24 @@ def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
             if len(centers_arr) > 0
             else np.empty((0, 2), dtype=np.float32)
         )
-    
+
         cell_w = WARP_SIZE / cols
         cell_h = WARP_SIZE / rows
         seat_centers = {
             (i, j): ((j + 0.5) * cell_w, (i + 0.5) * cell_h) for i in range(rows) for j in range(cols)
         }
-    
+
         seat_to_detections = {(i, j): [] for i in range(rows) for j in range(cols)}
-    
+
         # Map each warped center to corresponding seat cell
         for k, wc in enumerate(warped_centers):
             cell = which_cell(wc, WARP_SIZE, rows, cols)
             if cell is not None:
                 seat_to_detections[cell].append(k)
-    
+
         # Dictionary holding student names detected per seat this frame
         current_seat_names = {}
-    
+
         # Iterate over all students/seats to check their detection status
         for i in range(rows):
             for j in range(cols):
@@ -524,7 +635,7 @@ def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
                 if idx >= len(students):
                     continue
                 detections = seat_to_detections[(i, j)]
-    
+
                 if len(detections) == 0:
                     # No detection in seat: student moved out or absent
                     alerts.append(f"{students[idx]} moved out of seat")
@@ -534,19 +645,18 @@ def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
                     # If any detection(s) present, assign first detected name to this seat
                     detected_name = students[idx]  # Or use detected identity if available
                     current_seat_names[(i, j)] = detected_name
-    
+
         # Compare to prior frame seat names (needs to be stored externally with persistence across frames)
         for seat, name in current_seat_names.items():
             prior_name = prior_seat_names.get(seat)  # prior_seat_names must be a stored dict outside this function
             if prior_name is not None and name != prior_name:
                 alerts.append(f"{prior_name} moved out of seat ")
                 log_student_activity(prior_name, "moved out of seat")
-    
+
         # Update prior names for next frame (must be external/stateful)
         prior_seat_names.clear()
         prior_seat_names.update(current_seat_names)
-    
-        # Draw bounding boxes with student names on the frame
+
         # Draw bounding boxes with student names on the frame
         for (i, j), detection_indices in seat_to_detections.items():
             if detection_indices:
@@ -569,13 +679,9 @@ def process_frame_for_camera(name, frame, rows=None, cols=None, H=None):
                                 2,
                             )
 
-    
         # Additional detection for warped centers outside grid cells stays as is
-    
+
     return frame, alerts, head_boxes, centers
-    
-    
-    
 
 # ---------- Stream generators ----------
 def generate_setup_frames(cam_name):
@@ -594,6 +700,10 @@ def generate_setup_frames(cam_name):
             draw_polyline(frame, pts, color=(255,0,0), thickness=3, closed=True)
         ret, buff = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buff.tobytes() + b'\r\n')
+
+
+activity_start_times = {}  # key: student_name, value: dict of activity start timestamps
+ALERT_THRESHOLD = 20 # seconds threshold
 
 def generate_monitor_frames(cam_name):
     cap = load_cap(cam_name)
@@ -662,87 +772,122 @@ def generate_monitor_frames(cam_name):
 
 
 
-
-
             if cam_name == "front2":
+           
+
+            
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 annotated_frame = frame.copy()
-             
-                # Step 1: Detect people using YOLO
-                results_yolo = yolo.predict(source=frame, conf=CONF_THR, iou=IOU_THR, classes=[0], verbose=False)
+            
+                # Step 1: Detect people using YOLO (human activity model)
+                human_activity_model = YOLO("runs/detect/human_activity_yolo/weights/best.pt")
+                results_yolo = human_activity_model.predict(
+                    source=frame,
+                    conf=CONF_THR,
+                    iou=IOU_THR,
+                    verbose=False,
+                    max_det=50
+                )
+            
                 detected_people = []
                 centers = []
-             
+            
+                # Step 2: Process YOLO detections
                 if len(results_yolo) and len(results_yolo[0].boxes) > 0:
                     for b in results_yolo[0].boxes:
                         x1, y1, x2, y2 = map(int, b.xyxy[0].cpu().numpy()[:4])
-                        detected_people.append((x1, y1, x2, y2))
-             
+                        conf = float(b.conf[0].cpu().numpy())
+                        cls_id = int(b.cls[0].cpu().numpy())
+                        label = (
+                            human_activity_model.names[cls_id]
+                            if cls_id < len(human_activity_model.names)
+                            else "normal"
+                        )
+            
+                        # Accept only defined 4 classes
+                        if label not in ["normal", "standing", "bending", "turning around"]:
+                            label = "normal"
+            
+                        detected_people.append((x1, y1, x2, y2, label))
+                        
+                        # Center point of the bounding box
                         cx = (x1 + x2) // 2
                         cy = (y1 + y2) // 2
                         centers.append((cx, cy))
-             
-                        # Draw bbox and center point
-                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.circle(annotated_frame, (cx, cy), 5, (0, 0, 255), -1)
-             
-                # Step 2: Process each detected person for pose estimation
-                for pid, bbox in enumerate(detected_people):
-                    x1, y1, x2, y2 = bbox
-                    person_crop = frame[y1:y2, x1:x2]
-                    rgb_crop = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
-                    results_pose = pose.process(rgb_crop)
-                    label = "normal"  # Default class
-             
-                    if results_pose.pose_landmarks:
-                        keypoints = extract_keypoints(results_pose.pose_landmarks.landmark)
-             
-                        if pid not in keypoint_buffers:
-                            keypoint_buffers[pid] = deque(maxlen=SEQ_LEN)
-                        keypoint_buffers[pid].append(keypoints)
-             
-                        if len(keypoint_buffers[pid]) == SEQ_LEN:
-                            seq_input = np.stack(keypoint_buffers[pid])
-                            tensor_input = torch.tensor(seq_input).unsqueeze(0).to(device)
-                            with torch.no_grad():
-                                output = stgcn_model(tensor_input)
-                                class_id = torch.argmax(output, dim=1).item()
-                                class_name = CLASS_NAMES[class_id]
-                                if class_name in ["standing", "bending", "turning around"]:
-                                    label = class_name
-                                # If anything else (including "normal"), label remains "normal"
-                            # Only log activity if it's not normal
-                            if label != "normal":
-                                # Map pid or bbox to student name as in your grid logic, then:
-                                # log_student_activity(student_name, label)
-                                pass
-             
-                        # Draw pose landmarks inside the person's bounding box crop
-                        mp_drawing.draw_landmarks(
-                            person_crop,
-                            results_pose.pose_landmarks,
-                            mp_pose.POSE_CONNECTIONS,
-                            mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                            mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+            
+                        # Draw bounding box
+                        color = (0, 255, 0) if label == "normal" else (0, 0, 255)
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+            
+                        # Draw only the first letter of label in the center of box
+                        first_letter = label[0].upper()
+                        ((text_w, text_h), _) = cv2.getTextSize(first_letter, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+                        text_x = cx - text_w // 2
+                        text_y = cy + text_h // 2
+                        cv2.putText(
+                            annotated_frame,
+                            first_letter,
+                            (text_x, text_y),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.9,
+                            color,
+                            2,
+                            cv2.LINE_AA
                         )
-                        # Put the updated crop back into the annotated frame 
-                        annotated_frame[y1:y2, x1:x2] = person_crop
-             
-                    # Draw label above bounding box on annotated_frame
-                    cv2.putText(
-                        annotated_frame,
-                        label,
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0) if label == "normal" else (0, 0, 255),
-                        2
-                    )
-             
+            
+                
+                # Warping centers to warp space for grid cell lookup
+                if len(centers) > 0 and H is not None and rows is not None and cols is not None:
+                    centers_arr = np.array(centers, dtype=np.float32).reshape(-1, 2)
+                    warped_centers = warp_points(H, centers_arr)
+                else:
+                    warped_centers = np.empty((0, 2), dtype=np.float32)
+            
+                # Build a reverse lookup for seat polygons (using grid_polys_back)
+                # For each detected center, find which seat cell contains it
+                detected_activities_per_student = {}
+                current_time = time.time()
+
+                for i, wc in enumerate(warped_centers):
+                    seat_cell = which_cell(wc, WARP_SIZE, rows, cols)
+                    if seat_cell is not None:
+                        seat_index = seat_cell[0] * cols + seat_cell[1]
+                        if seat_index < len(students):
+                            student_name = students[seat_index]
+                            _, _, _, _, detected_label = detected_people[i]
+                
+                            if detected_label != "normal":
+                                # Check if activity just started or continued
+                                if student_name not in activity_start_times:
+                                    activity_start_times[student_name] = {}
+                                if detected_label not in activity_start_times[student_name]:
+                                    # New activity started, set timestamp
+                                    activity_start_times[student_name][detected_label] = current_time
+                                else:
+                                    # Check elapsed time for this activity
+                                    elapsed = current_time - activity_start_times[student_name][detected_label]
+                                    if elapsed >= ALERT_THRESHOLD:
+                                        # Log and alert if threshold passed
+                                        log_student_activity(student_name, detected_label)
+                                        
+                            else:
+                                # Reset stored activities for this student if currently 'normal'
+                                if student_name in activity_start_times:
+                                    if detected_label in activity_start_times[student_name]:
+                                        del activity_start_times[student_name][detected_label]
+                
+            
+                # Step 4: Display the annotated frame with bounding boxes and single-letter labels
                 frame = annotated_frame
+
+
+
 
                         
             elif cam_name == "front3":
+                
+                
+
          # presence/absence logic
                 results = yolo.predict(
                     source=frame, conf=CONF_THR, iou=IOU_THR, classes=[0], verbose=False
@@ -880,7 +1025,54 @@ def index():
 
 @app.route('/setup')
 def setup_page():
-    return render_template('setup.html')
+    return render_template('setup.html')  # your HTML file in templates/
+
+# ---------- ROUTE: Save student names ----------
+@app.route('/save_students', methods=['POST'])
+def save_students():
+    global students  # <---- Add this line
+    data = request.get_json()
+    student_names = data.get('student_names', [])
+
+    if not student_names:
+        return jsonify({"message": "No student names received"}), 400
+
+    # Save to CSV safely
+    try:
+        with open(STUDENTS_CSV, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Name"])  # Header
+            for name in student_names:
+                writer.writerow([name.strip()])
+
+        # ✅ Reload student list immediately
+        students = [name.strip() for name in student_names if name.strip()]
+
+        return jsonify({"message": "Student names saved successfully!"})
+    except Exception as e:
+        return jsonify({"message": f"Error saving students: {e}"}), 500
+
+
+# ---------- SAFELY READ CSV ANYWHERE ----------
+def read_student_csv():
+    """Return student list safely without crashing if file empty"""
+    if os.path.exists(STUDENTS_CSV) and os.path.getsize(STUDENTS_CSV) > 0:
+        try:
+            df = pd.read_csv(STUDENTS_CSV)
+            if "Name" in df.columns:
+                return df["Name"].dropna().astype(str).str.strip().tolist()
+            else:
+                return df.iloc[:, 0].dropna().astype(str).str.strip().tolist()
+        except Exception:
+            return []
+    return []
+
+# ---------- Example route to test reading students ----------
+@app.route('/students')
+def list_students():
+    students = read_student_csv()
+    return jsonify({"students": students})
+
 
 @app.route('/stream_setup/<cam>')
 def stream_setup(cam):
@@ -898,7 +1090,47 @@ def save_calib_route():
 
 @app.route('/monitor')
 def monitor_page():
-    return render_template('monitor.html')
+    # Load students from CSV
+    if os.path.exists(STUDENTS_CSV) and os.path.getsize(STUDENTS_CSV) > 0:
+        df = pd.read_csv(STUDENTS_CSV)
+        students = df.iloc[:, 0].astype(str).str.strip().tolist()
+    else:
+        students = []
+
+    # Load exam details from saved setup.json
+    setup_file = "setup.json"
+    if os.path.exists(setup_file):
+        with open(setup_file, "r") as f:
+            setup_data = json.load(f)
+    else:
+        setup_data = {"exam_name": "Unknown", "subject_code": "N/A", "duration": "N/A"}
+
+    return render_template(
+        "monitor.html",
+        students=students,
+        exam_name=setup_data.get("exam_name", ""),
+        subject_code=setup_data.get("subject_code", ""),
+        duration=setup_data.get("duration", "")
+    )
+
+@app.route('/save_exam_details', methods=['POST'])
+def save_exam_details():
+    data = request.get_json()
+    exam_name = data.get('exam_name', '')
+    subject_code = data.get('subject_code', '')
+    duration = data.get('duration', '')
+
+    # Save to setup.json
+    setup_data = {
+        "exam_name": exam_name,
+        "subject_code": subject_code,
+        "duration": duration
+    }
+
+    with open("setup.json", "w") as f:
+        json.dump(setup_data, f, indent=2)
+
+    return jsonify({"message": "Exam details saved successfully!"})
 
 @app.route('/stream_monitor/<cam>')
 def stream_monitor(cam):
@@ -925,8 +1157,13 @@ def stream_monitor_right2():
 @app.route("/dashboard")
 def dashboard():
     df = read_log_files()
+
+    # Existing charts
     absent_students, present_students = plot_attendance_bar_chart(df)
     violated_students, honest_students, _ = analyze_violations(df)
+
+    # NEW → Generate the two new charts before loading dashboard
+    generate_dashboard_graphs()  
 
     return render_template(
         "dashboard.html",
@@ -939,61 +1176,16 @@ def dashboard():
 
 
 
-
         
-
-@app.route('/student/<student_name>')
-def student_logs(student_name):
-    with activity_lock:
-        logs = activity_log.get(student_name, [])
-    return render_template('student_logs.html', student=student_name, logs=logs)
-
-@app.route('/delete_student/<student_name>', methods=['POST'])
-def delete_student_log(student_name):
-    with activity_lock:
-        if student_name in activity_log:
-            activity_log[student_name] = []
-    # also clear the CSV
-    fn = os.path.join(LOGS_DIR, f"{safe_filename(student_name)}.csv")
-    if os.path.exists(fn):
-        try:
-            os.remove(fn)
-        except:
-            pass
-    return redirect(url_for('dashboard_page'))
-
-@app.route('/delete_all', methods=['POST'])
-def delete_all_logs():
-    with activity_lock:
-        for student in students:
-            activity_log[student] = []
-    # clear CSVs
-    for student in students:
-        fn = os.path.join(LOGS_DIR, f"{safe_filename(student)}.csv")
-        if os.path.exists(fn):
-            try:
-                os.remove(fn)
-            except:
-                pass
-    return redirect(url_for('dashboard_page'))
-
-@app.route('/student_log/<name>')
-def student_log(name):
-    fn = os.path.join(LOGS_DIR, f"{safe_filename(name)}.csv")
-    rows = []
-    if os.path.exists(fn):
-        with open(fn, newline='', encoding='utf-8') as f:
-            r = csv.reader(f)
-            headers = next(r, None)
-            for row in r:
-                rows.append(row)
-    return render_template('student_log.html', name=name, rows=rows)
 
 # cleanup
 @atexit.register
 def _cleanup():
     release_caps()
 
+# Initialize global student list at startup
+students = read_student_csv()
+ 
 if __name__ == "__main__":
     start_voice_alert_thread()
     
